@@ -152,7 +152,9 @@ export default function TrackCanvas({
         ctx.stroke();
       }
 
-      const spriteScale = 1.15;
+      // Smaller in the full-race view (where ~20 cars can bunch up tightly);
+      // full size once the camera is zoomed in on a single followed car.
+      const spriteScale = sel != null ? 1.15 : 0.75;
       for (const driver of raceData.drivers) {
         const pos = raceData.positions[driver.number];
         if (!pos) continue;

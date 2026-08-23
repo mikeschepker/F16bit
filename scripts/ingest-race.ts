@@ -19,6 +19,11 @@ function arg(name: string, fallback?: string): string {
   return v;
 }
 
+function optionalArg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i !== -1 ? process.argv[i + 1] : undefined;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -95,6 +100,11 @@ interface RawStint {
   lap_start: number;
   lap_end: number;
   compound: string;
+}
+
+interface RawMeeting {
+  meeting_key: number;
+  meeting_name: string;
 }
 
 interface RawSessionResult {
@@ -176,8 +186,11 @@ async function main() {
   const year = arg("year", "2024");
   const country = arg("country", "Brazil");
   const slug = arg("slug", "2024-brazil");
+  // Disambiguates countries that host more than one race in a season
+  // (e.g. USA: Miami/Austin/Las Vegas; Spain: Catalunya/Madring).
+  const location = optionalArg("location");
 
-  console.log(`Resolving Race session for ${country} ${year}...`);
+  console.log(`Resolving Race session for ${country} ${year}${location ? ` (${location})` : ""}...`);
   const sessions = await fetchJSON<RawSession[]>(
     `${API}/sessions?year=${encodeURIComponent(year)}&country_name=${encodeURIComponent(
       country
@@ -185,13 +198,18 @@ async function main() {
   );
   // Sprint weekends also report session_type=Race for the sprint itself;
   // the main event is session_name === "Race".
-  const session = sessions.find((s) => s.session_name === "Race");
-  if (!session) throw new Error(`No Race session found for ${country} ${year}`);
+  const session = sessions.find(
+    (s) => s.session_name === "Race" && (!location || s.location === location)
+  );
+  if (!session) throw new Error(`No Race session found for ${country} ${year}${location ? ` / ${location}` : ""}`);
   console.log(
     `Found session_key=${session.session_key} (${session.circuit_short_name}, ${session.date_start})`
   );
 
   const sessionKey = session.session_key;
+
+  const [meeting] = await fetchJSON<RawMeeting[]>(`${API}/meetings?meeting_key=${session.meeting_key}`);
+  await sleep(2100); // free tier: 30 req/min average
 
   console.log("Fetching drivers, position, intervals, laps, stints, session_result...");
   const drivers = await fetchJSON<RawDriver[]>(`${API}/drivers?session_key=${sessionKey}`);
@@ -219,8 +237,6 @@ async function main() {
     `Fetching location data for ${drivers.length} drivers (one request each, paced for rate limits)...`
   );
   const positionsOut: OutPositions = {};
-  let allTrackCandidatePoints: { t: number; x: number; y: number }[] | null = null;
-  const trackDriverNumber = drivers[0]?.driver_number;
 
   for (const d of drivers) {
     const loc = await fetchJSON<RawLocation[]>(
@@ -237,36 +253,63 @@ async function main() {
       y.push(row.y);
     }
     positionsOut[d.driver_number] = { t, x, y };
-    if (d.driver_number === trackDriverNumber) {
-      allTrackCandidatePoints = t.map((tt, i) => ({ t: tt, x: x[i], y: y[i] }));
-    }
     console.log(`  #${d.driver_number} ${d.name_acronym}: ${loc.length} raw -> ${t.length} valid points`);
     await sleep(2100); // free tier: 30 req/min average
   }
 
   // --- derive track outline from one clean racing lap ---
-  const driverLaps = laps
-    .filter((l) => l.driver_number === trackDriverNumber && !l.is_pit_out_lap && l.date_start && l.lap_duration)
-    .sort((a, b) => (a.lap_number ?? 0) - (b.lap_number ?? 0));
-  // Prefer a lap somewhere in the middle of the race (avoids formation/safety-car laps).
-  const midLap = driverLaps[Math.floor(driverLaps.length / 2)] ?? driverLaps[0];
-  if (!midLap || !allTrackCandidatePoints) {
-    throw new Error("Could not find a clean lap to derive the track outline from");
+  // Try drivers in order of most location samples first (a driver who DNS'd or
+  // crashed early, like `drivers[0]` isn't guaranteed to be, may have no laps
+  // recorded at all), and pick the first one with a usable mid-race lap.
+  const candidateOrder = [...drivers].sort(
+    (a, b) => (positionsOut[b.driver_number]?.t.length ?? 0) - (positionsOut[a.driver_number]?.t.length ?? 0)
+  );
+  let track: OutTrack | null = null;
+  outer: for (const candidate of candidateOrder) {
+    const trackDriverNumber = candidate.driver_number;
+    const driverLaps = laps
+      .filter((l) => l.driver_number === trackDriverNumber && !l.is_pit_out_lap && l.date_start && l.lap_duration)
+      .sort((a, b) => (a.lap_number ?? 0) - (b.lap_number ?? 0));
+    if (!driverLaps.length) continue;
+
+    // Try laps ordered by closeness to the middle of the race first (avoids
+    // formation/safety-car laps), but fall back to any lap with enough location
+    // coverage — some sessions only have telemetry for part of the race (e.g. a
+    // gap in what OpenF1 archived), so a "middle" lap can fall in a dead zone
+    // while an earlier/later lap is fine.
+    const midIdx = Math.floor(driverLaps.length / 2);
+    const byCloseness = [...driverLaps].sort(
+      (a, b) => Math.abs(driverLaps.indexOf(a) - midIdx) - Math.abs(driverLaps.indexOf(b) - midIdx)
+    );
+
+    const candidatePoints = positionsOut[trackDriverNumber];
+    for (const lap of byCloseness) {
+      const lapStartMs = new Date(lap.date_start as string).getTime();
+      const lapEndMs = lapStartMs + (lap.lap_duration as number) * 1000;
+      const lapPoints = candidatePoints.t
+        .map((tt, i) => ({ t: tt, x: candidatePoints.x[i], y: candidatePoints.y[i] }))
+        .filter((p) => {
+          const ms = raceStartMs + p.t * 1000;
+          return ms >= lapStartMs && ms <= lapEndMs;
+        });
+      if (lapPoints.length < 20) continue; // too sparse to trust as a track outline
+
+      const trackPointsRaw: [number, number][] = decimate(lapPoints, 400).map((p) => [p.x, p.y]);
+      const xs = trackPointsRaw.map((p) => p[0]);
+      const ys = trackPointsRaw.map((p) => p[1]);
+      track = {
+        points: trackPointsRaw,
+        bounds: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) },
+      };
+      console.log(
+        `Derived track outline from lap ${lap.lap_number} of driver #${trackDriverNumber}: ${track.points.length} points`
+      );
+      break outer;
+    }
   }
-  const lapStartMs = new Date(midLap.date_start as string).getTime();
-  const lapEndMs = lapStartMs + (midLap.lap_duration as number) * 1000;
-  const lapPoints = allTrackCandidatePoints.filter((p) => {
-    const ms = raceStartMs + p.t * 1000;
-    return ms >= lapStartMs && ms <= lapEndMs;
-  });
-  const trackPointsRaw: [number, number][] = decimate(lapPoints, 400).map((p) => [p.x, p.y]);
-  const xs = trackPointsRaw.map((p) => p[0]);
-  const ys = trackPointsRaw.map((p) => p[1]);
-  const track: OutTrack = {
-    points: trackPointsRaw,
-    bounds: { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) },
-  };
-  console.log(`Derived track outline from lap ${midLap.lap_number} of driver #${trackDriverNumber}: ${track.points.length} points`);
+  if (!track) {
+    throw new Error("Could not find a clean lap to derive the track outline from (tried all drivers/laps)");
+  }
 
   // --- timing (position / gap / laps / stints) ---
   const timingOut: OutTiming = {};
@@ -323,7 +366,7 @@ async function main() {
 
   const sessionOut: OutSession = {
     slug,
-    meetingName: `${session.country_name} Grand Prix`,
+    meetingName: meeting?.meeting_name ?? `${session.country_name} Grand Prix`,
     location: session.location,
     countryName: session.country_name,
     circuitShortName: session.circuit_short_name,
