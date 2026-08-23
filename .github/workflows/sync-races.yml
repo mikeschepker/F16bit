@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: sync-races
@@ -34,6 +35,16 @@ jobs:
 
           $(git diff --name-only --cached public/data/races | xargs -n1 dirname | sort -u)"
             git push
+            echo "PUSHED=1" >> "$GITHUB_ENV"
           else
             echo "No new races found."
           fi
+
+      # A push made with the default GITHUB_TOKEN doesn't trigger other
+      # workflows' `on: push` (GitHub's loop-prevention), so deploy.yml would
+      # never rebuild the site after new race data lands. Trigger it directly.
+      - name: Trigger site deploy
+        if: env.PUSHED == '1'
+        run: gh workflow run deploy.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
