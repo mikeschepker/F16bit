@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+:root {
+  --background: #05070f;
+  --foreground: #dbe4ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-pixel-heading: var(--font-pixel-heading);
+  --font-pixel-body: var(--font-pixel-body);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-pixel-body), monospace;
+  font-size: 16px;
+}
+
+.font-pixel-heading {
+  font-family: var(--font-pixel-heading), monospace;
+}
+
+.font-pixel-body {
+  font-family: var(--font-pixel-body), monospace;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3554 #0c1220;
+}
