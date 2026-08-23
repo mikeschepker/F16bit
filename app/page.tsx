@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { RACES } from "@/lib/races";
+import RaceCalendar from "@/components/RaceCalendar";
 
 export default function Home() {
   return (
@@ -14,32 +14,7 @@ export default function Home() {
         </p>
       </header>
 
-      <div className="w-full max-w-2xl flex flex-col gap-4">
-        {RACES.map((race) => (
-          <Link
-            key={race.slug}
-            href={`/race/${race.slug}`}
-            className="group block rounded-lg border-4 border-[#2a3554] bg-[#0c1220] p-5 shadow-[0_0_0_2px_#000] hover:border-[#4c6fff] transition-colors"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col gap-1 min-w-0">
-                <span className="text-[10px] uppercase tracking-widest text-[#4c6fff]">
-                  {race.round} &middot; {race.year}
-                </span>
-                <span className="font-pixel-heading text-sm text-white leading-relaxed">
-                  {race.name}
-                </span>
-                <span className="text-[#8fa2c8] text-base truncate">
-                  {race.subtitle}
-                </span>
-              </div>
-              <span className="shrink-0 font-pixel-heading text-[10px] text-[#4c6fff] group-hover:translate-x-1 transition-transform">
-                WATCH ▶
-              </span>
-            </div>
-          </Link>
-        ))}
-      </div>
+      <RaceCalendar races={RACES} />
     </div>
   );
 }

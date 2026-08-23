@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "ingest": "tsx scripts/ingest-race.ts"
+    "ingest": "tsx scripts/ingest-race.ts",
+    "sync": "tsx scripts/sync-new-races.ts"
   },
   "dependencies": {
     "next": "16.3.2",

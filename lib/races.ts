@@ -1,3 +1,7 @@
+import { readdirSync, readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import type { SessionInfo, Driver, ResultsData } from "./types";
+
 export interface RaceListing {
   slug: string;
   name: string;
@@ -6,87 +10,69 @@ export interface RaceListing {
   round: string;
 }
 
-// Add more races here after running `npm run ingest -- --year Y --country C --slug S`.
-export const RACES: RaceListing[] = [
-  {
-    slug: "2024-brazil",
-    name: "Brazilian Grand Prix",
-    subtitle: "Interlagos — Verstappen's rain-soaked drive from P17 to P1",
-    year: 2024,
-    round: "Round 21",
-  },
-  {
-    slug: "2026-australia",
-    name: "Australian Grand Prix",
-    subtitle: "Melbourne — winner: G RUSSELL",
-    year: 2026,
-    round: "Mar 8",
-  },
-  {
-    slug: "2026-china",
-    name: "Chinese Grand Prix",
-    subtitle: "Shanghai — winner: K ANTONELLI",
-    year: 2026,
-    round: "Mar 15",
-  },
-  {
-    slug: "2026-japan",
-    name: "Japanese Grand Prix",
-    subtitle: "Suzuka — winner: K ANTONELLI",
-    year: 2026,
-    round: "Mar 29",
-  },
-  {
-    slug: "2026-miami",
-    name: "Miami Grand Prix",
-    subtitle: "Miami — winner: K ANTONELLI",
-    year: 2026,
-    round: "May 3",
-  },
-  {
-    slug: "2026-canada",
-    name: "Canadian Grand Prix",
-    subtitle: "Montreal — winner: K ANTONELLI",
-    year: 2026,
-    round: "May 24",
-  },
-  {
-    slug: "2026-spain",
-    name: "Barcelona Grand Prix",
-    subtitle: "Catalunya — winner: L HAMILTON",
-    year: 2026,
-    round: "Jun 14",
-  },
-  {
-    slug: "2026-austria",
-    name: "Austrian Grand Prix",
-    subtitle: "Spielberg — winner: G RUSSELL",
-    year: 2026,
-    round: "Jun 28",
-  },
-  {
-    slug: "2026-britain",
-    name: "British Grand Prix",
-    subtitle: "Silverstone — winner: C LECLERC",
-    year: 2026,
-    round: "Jul 5",
-  },
-  {
-    slug: "2026-belgium",
-    name: "Belgian Grand Prix",
-    subtitle: "Spa-Francorchamps — winner: K ANTONELLI",
-    year: 2026,
-    round: "Jul 19",
-  },
-  {
-    slug: "2026-hungary",
-    name: "Hungarian Grand Prix",
-    subtitle: "Hungaroring — winner: L NORRIS",
-    year: 2026,
-    round: "Jul 26",
-  },
-];
+const RACES_DIR = path.join(process.cwd(), "public", "data", "races");
 
-// 2026-monaco was ingested but is intentionally left out of the list above:
-// OpenF1's location telemetry for that session only covers ~6.5 minutes of
-// the race (an upstream data gap), which isn't enough for a real replay.
+// A race needs at least this much car-position telemetry to be worth
+// watching. OpenF1 occasionally has a gap in a session's location data (e.g.
+// 2026 Monaco only has ~6.5 min of it for a 2-hour race) — rather than
+// maintain a manual exclusion list, any race that thin is just left off the
+// list automatically. The data still lives on disk in case OpenF1 backfills
+// it later; re-running the app picks it up with no code change needed.
+const MIN_DURATION_SECONDS = 30 * 60;
+
+// Hand-curated subtitles for races worth a better line than the generic
+// "circuit — winner: X" (keyed by slug). Everything else falls back to the
+// generic form, generated straight from the ingested data.
+const SUBTITLE_OVERRIDES: Record<string, string> = {
+  "2024-brazil": "Interlagos — Verstappen's rain-soaked drive from P17 to P1",
+};
+
+function loadRace(slug: string): RaceListing | null {
+  const dir = path.join(RACES_DIR, slug);
+  const sessionFile = path.join(dir, "session.json");
+  if (!existsSync(sessionFile)) return null;
+
+  const session: SessionInfo = JSON.parse(readFileSync(sessionFile, "utf-8"));
+  if (session.durationSeconds < MIN_DURATION_SECONDS) return null;
+
+  const drivers: Driver[] = JSON.parse(readFileSync(path.join(dir, "drivers.json"), "utf-8"));
+  const results: ResultsData = JSON.parse(readFileSync(path.join(dir, "results.json"), "utf-8"));
+
+  const winnerNumber = Object.entries(results).find(([, r]) => r.position === 1)?.[0];
+  const winner = winnerNumber ? drivers.find((d) => String(d.number) === winnerNumber) : undefined;
+
+  return {
+    slug,
+    name: session.meetingName,
+    subtitle:
+      SUBTITLE_OVERRIDES[slug] ??
+      `${session.circuitShortName} — winner: ${winner ? winner.name : "unknown"}`,
+    year: session.year,
+    round: new Date(session.raceStart).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }),
+  };
+}
+
+function loadRaces(): RaceListing[] {
+  if (!existsSync(RACES_DIR)) return [];
+
+  const withDates = readdirSync(RACES_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .map((slug) => {
+      const race = loadRace(slug);
+      if (!race) return null;
+      const sessionFile = path.join(RACES_DIR, slug, "session.json");
+      const session: SessionInfo = JSON.parse(readFileSync(sessionFile, "utf-8"));
+      return { race, raceStart: session.raceStart };
+    })
+    .filter((r): r is { race: RaceListing; raceStart: string } => r !== null);
+
+  withDates.sort((a, b) => new Date(b.raceStart).getTime() - new Date(a.raceStart).getTime());
+  return withDates.map((r) => r.race);
+}
+
+export const RACES: RaceListing[] = loadRaces();

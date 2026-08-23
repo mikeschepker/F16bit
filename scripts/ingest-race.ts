@@ -6,6 +6,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fetchJSON } from "./fetchRetry";
 
 const API = "https://api.openf1.org/v1";
 
@@ -26,20 +27,6 @@ function optionalArg(name: string): string | undefined {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function fetchJSON<T>(url: string, retries = 5): Promise<T> {
-  const res = await fetch(url);
-  if (res.status === 429 && retries > 0) {
-    const waitMs = 5000;
-    console.log(`  rate limited, waiting ${waitMs}ms...`);
-    await sleep(waitMs);
-    return fetchJSON<T>(url, retries - 1);
-  }
-  if (!res.ok) {
-    throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as T;
 }
 
 // --- OpenF1 raw shapes (only the fields we use) ---
@@ -186,11 +173,14 @@ async function main() {
   const year = arg("year", "2024");
   const country = arg("country", "Brazil");
   const slug = arg("slug", "2024-brazil");
-  // Disambiguates countries that host more than one race in a season
-  // (e.g. USA: Miami/Austin/Las Vegas; Spain: Catalunya/Madring).
-  const location = optionalArg("location");
+  // Disambiguates countries that host more than one race in a season (e.g.
+  // USA: Miami/Austin/Las Vegas; Spain: Catalunya/Madring). Matched against
+  // circuit_short_name, NOT `location` — OpenF1's `location` (city) field
+  // for the same circuit isn't stable across years (Monaco 2026 reports
+  // "Monte Carlo", 2025 reports "Monaco"), but circuit_short_name is.
+  const circuit = optionalArg("circuit");
 
-  console.log(`Resolving Race session for ${country} ${year}${location ? ` (${location})` : ""}...`);
+  console.log(`Resolving Race session for ${country} ${year}${circuit ? ` (${circuit})` : ""}...`);
   const sessions = await fetchJSON<RawSession[]>(
     `${API}/sessions?year=${encodeURIComponent(year)}&country_name=${encodeURIComponent(
       country
@@ -199,9 +189,9 @@ async function main() {
   // Sprint weekends also report session_type=Race for the sprint itself;
   // the main event is session_name === "Race".
   const session = sessions.find(
-    (s) => s.session_name === "Race" && (!location || s.location === location)
+    (s) => s.session_name === "Race" && (!circuit || s.circuit_short_name === circuit)
   );
-  if (!session) throw new Error(`No Race session found for ${country} ${year}${location ? ` / ${location}` : ""}`);
+  if (!session) throw new Error(`No Race session found for ${country} ${year}${circuit ? ` / ${circuit}` : ""}`);
   console.log(
     `Found session_key=${session.session_key} (${session.circuit_short_name}, ${session.date_start})`
   );
