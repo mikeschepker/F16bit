@@ -238,6 +238,17 @@ async function main() {
     for (const row of loc) {
       // OpenF1 emits (0,0,0) sentinel rows before a car's telemetry is live; drop them.
       if (row.x === 0 && row.y === 0 && row.z === 0) continue;
+      // Some sessions have an x/y update rate much slower than the row/timestamp
+      // rate (seen in 2026 Hungary: x,y held constant for up to ~4.6s across many
+      // rows while only z/date changed, 73% of rows were exact x,y duplicates).
+      // Collapsing those runs to one point at the run's start time keeps the
+      // array free of redundant samples, and — more importantly — means every
+      // pair of *consecutive* points always has a real position change, so the
+      // heading calculated between them (atan2 of the delta) is never garbage
+      // from a same-point (0,0) delta.
+      const lastX = x[x.length - 1];
+      const lastY = y[y.length - 1];
+      if (row.x === lastX && row.y === lastY) continue;
       t.push(Math.round(toSeconds(row.date, raceStartMs) * 100) / 100);
       x.push(row.x);
       y.push(row.y);
@@ -273,15 +284,31 @@ async function main() {
     );
 
     const candidatePoints = positionsOut[trackDriverNumber];
+    const allPointsForDriver = candidatePoints.t.map((tt, i) => ({
+      t: tt,
+      x: candidatePoints.x[i],
+      y: candidatePoints.y[i],
+    }));
+
     for (const lap of byCloseness) {
       const lapStartMs = new Date(lap.date_start as string).getTime();
-      const lapEndMs = lapStartMs + (lap.lap_duration as number) * 1000;
-      const lapPoints = candidatePoints.t
-        .map((tt, i) => ({ t: tt, x: candidatePoints.x[i], y: candidatePoints.y[i] }))
-        .filter((p) => {
+      const lapDurationMs = (lap.lap_duration as number) * 1000;
+
+      // A single lap's worth of samples is sometimes too sparse to trace a
+      // recognizable track shape — some sessions have an x/y update rate far
+      // slower than usual (2026 Hungary: as little as ~20 distinct points for
+      // an 85s lap). Widen the window by additional laps' worth of time until
+      // there's enough, since consecutive laps retrace the same physical path.
+      let lapEndMs = lapStartMs + lapDurationMs;
+      let lapPoints: { t: number; x: number; y: number }[] = [];
+      for (let extensions = 0; extensions <= 6; extensions++) {
+        lapPoints = allPointsForDriver.filter((p) => {
           const ms = raceStartMs + p.t * 1000;
           return ms >= lapStartMs && ms <= lapEndMs;
         });
+        if (lapPoints.length >= 150) break;
+        lapEndMs += lapDurationMs;
+      }
       if (lapPoints.length < 20) continue; // too sparse to trust as a track outline
 
       const trackPointsRaw: [number, number][] = decimate(lapPoints, 400).map((p) => [p.x, p.y]);
