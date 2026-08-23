@@ -103,6 +103,17 @@ interface RawSessionResult {
   dsq: boolean;
 }
 
+interface RawStartingGrid {
+  driver_number: number;
+  position: number | null;
+}
+
+interface RawPit {
+  driver_number: number;
+  lap_number: number;
+  pit_duration: number | null;
+}
+
 // --- output shapes ---
 
 interface OutDriver {
@@ -146,10 +157,12 @@ interface OutSession {
 interface OutResults {
   [driverNumber: string]: {
     position: number | null;
+    gridPosition: number | null;
     laps: number;
     dnf: boolean;
     dns: boolean;
     dsq: boolean;
+    pitStops: { lapNumber: number; duration: number | null }[];
   };
 }
 
@@ -213,6 +226,14 @@ async function main() {
   const stints = await fetchJSON<RawStint[]>(`${API}/stints?session_key=${sessionKey}`);
   await sleep(2100); // free tier: 30 req/min average
   const results = await fetchJSON<RawSessionResult[]>(`${API}/session_result?session_key=${sessionKey}`);
+  await sleep(2100); // free tier: 30 req/min average
+  // Starting grid is reported against the qualifying session, not the race —
+  // there's no session_key for it here, so it's fetched by meeting_key instead.
+  const startingGrid = await fetchJSON<RawStartingGrid[]>(
+    `${API}/starting_grid?meeting_key=${session.meeting_key}`
+  );
+  await sleep(2100); // free tier: 30 req/min average
+  const pits = await fetchJSON<RawPit[]>(`${API}/pit?session_key=${sessionKey}`);
   await sleep(2100); // free tier: 30 req/min average
 
   // Race start (t=0) = earliest lap_number=1 date_start across drivers (i.e. actual
@@ -370,14 +391,29 @@ async function main() {
     teamColor: `#${d.team_colour}`,
   }));
 
+  // OpenF1 has occasionally reported pit_duration in the thousands of seconds
+  // for very recent sessions (seen in 2026 Netherlands, hours after the race —
+  // presumably a transient upstream data issue). A real pit stop, including a
+  // drive-through penalty, is never anywhere near this long, so treat
+  // anything implausible as missing rather than showing a nonsense number.
+  const MAX_PLAUSIBLE_PIT_SECONDS = 180;
+
   const resultsOut: OutResults = {};
   for (const r of results) {
     resultsOut[r.driver_number] = {
       position: r.position,
+      gridPosition: startingGrid.find((g) => g.driver_number === r.driver_number)?.position ?? null,
       laps: r.number_of_laps,
       dnf: r.dnf,
       dns: r.dns,
       dsq: r.dsq,
+      pitStops: pits
+        .filter((p) => p.driver_number === r.driver_number)
+        .map((p) => ({
+          lapNumber: p.lap_number,
+          duration:
+            p.pit_duration != null && p.pit_duration <= MAX_PLAUSIBLE_PIT_SECONDS ? p.pit_duration : null,
+        })),
     };
   }
 

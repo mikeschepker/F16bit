@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { RaceData } from "@/lib/types";
 import type { ClockRef } from "./RaceViewer";
 import { stepLookup, currentLap } from "@/lib/interpolate";
@@ -76,6 +76,7 @@ export default function Leaderboard({
   const [rows, setRows] = useState<Row[]>(() => buildRows(raceData, 0));
   const [time, setTime] = useState(0);
   const [hovered, setHovered] = useState<number | null>(null);
+  const rowRefs = useRef(new Map<number, HTMLDivElement>());
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -85,6 +86,11 @@ export default function Leaderboard({
     }, 250);
     return () => clearInterval(id);
   }, [raceData, clockRef]);
+
+  useEffect(() => {
+    if (selectedDriver == null) return;
+    rowRefs.current.get(selectedDriver)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedDriver]);
 
   const lapNow = rows.length ? Math.max(...rows.map((r) => r.lapNumber ?? 0)) : 0;
 
@@ -107,6 +113,10 @@ export default function Leaderboard({
           return (
             <div
               key={r.number}
+              ref={(el) => {
+                if (el) rowRefs.current.set(r.number, el);
+                else rowRefs.current.delete(r.number);
+              }}
               className="relative"
               onMouseEnter={() => setHovered(r.number)}
               onMouseLeave={() => setHovered((h) => (h === r.number ? null : h))}
@@ -164,6 +174,31 @@ export default function Leaderboard({
                     <span className="text-white text-right">{formatLapTime(best)}</span>
                     <span>Tyre</span>
                     <span className="text-white text-right">{r.compound ?? "—"}</span>
+                    {result?.gridPosition != null && (
+                      <>
+                        <span>Grid</span>
+                        <span className="text-white text-right">
+                          P{result.gridPosition}
+                          {(() => {
+                            const delta = result.gridPosition - r.position;
+                            if (delta === 0) return null;
+                            return (
+                              <span className={delta > 0 ? "text-[#5ee38c]" : "text-[#ff6b6b]"}>
+                                {" "}
+                                ({delta > 0 ? "+" : ""}
+                                {delta})
+                              </span>
+                            );
+                          })()}
+                        </span>
+                      </>
+                    )}
+                    {result && result.pitStops.length > 0 && (
+                      <>
+                        <span>Pit stops</span>
+                        <span className="text-white text-right">{result.pitStops.length}</span>
+                      </>
+                    )}
                     {result && (
                       <>
                         <span>Result</span>

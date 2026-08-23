@@ -57,12 +57,19 @@ export interface SessionInfo {
   totalLaps: number;
 }
 
+export interface PitStop {
+  lapNumber: number;
+  duration: number | null;
+}
+
 export interface ResultEntry {
   position: number | null;
+  gridPosition: number | null;
   laps: number;
   dnf: boolean;
   dns: boolean;
   dsq: boolean;
+  pitStops: PitStop[];
 }
 
 export type ResultsData = Record<string, ResultEntry>;
