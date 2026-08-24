@@ -31,7 +31,7 @@ export default function PlaybackControls({
   const duration = raceData.session.durationSeconds;
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border-4 border-[#2a3554] bg-[#0c1220] px-4 py-3 font-mono text-xs text-[#dbe4ff] shadow-[0_0_0_2px_#000]">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border-4 border-[#2a3554] bg-[#0c1220] px-4 py-3 font-mono text-xs text-[#dbe4ff] shadow-[0_0_0_2px_#000]">
       <button
         onClick={() => {
           clockRef.current.playing = !clockRef.current.playing;
@@ -56,14 +56,14 @@ export default function PlaybackControls({
         }}
         onMouseUp={() => (scrubbing.current = false)}
         onTouchEnd={() => (scrubbing.current = false)}
-        className="flex-1 accent-[#4c6fff]"
+        className="flex-1 min-w-[80px] accent-[#4c6fff]"
       />
 
       <span className="w-24 text-right tabular-nums text-[#8fa2c8] shrink-0">
         {formatClock(time)} / {formatClock(duration)}
       </span>
 
-      <div className="flex gap-1 shrink-0">
+      <div className="flex flex-wrap gap-1 w-full justify-center sm:w-auto sm:justify-start sm:shrink-0">
         {SPEEDS.map((s) => (
           <button
             key={s}
