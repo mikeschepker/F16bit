@@ -40,6 +40,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             OpenF1
           </a>
           . Not affiliated with Formula 1, FIA, or any team.
+          <br />
+          <a
+            href="https://dumbfun.lol"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-1 underline hover:text-[#8fa2c8]"
+          >
+            <img
+              src="https://dumbfun.lol/logos/dumb_fun_face.png"
+              alt=""
+              className="h-3 w-3"
+            />
+            a dumb fun project
+          </a>
         </footer>
         <Script
           src="https://stats.shep.online/script.js"
