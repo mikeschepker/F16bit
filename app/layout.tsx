@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Press_Start_2P, VT323 } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const pixelHeading = Press_Start_2P({
@@ -40,6 +41,18 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </a>
           . Not affiliated with Formula 1, FIA, or any team.
         </footer>
+        <Script
+          src="https://stats.shep.online/script.js"
+          data-website-id="35ad0c08-39b2-470a-83e0-97d35a4c04c3"
+          strategy="beforeInteractive"
+          defer
+        />
+        <Script
+          src="https://stats.shep.online/recorder.js"
+          data-website-id="35ad0c08-39b2-470a-83e0-97d35a4c04c3"
+          strategy="beforeInteractive"
+          defer
+        />
       </body>
     </html>
   );
