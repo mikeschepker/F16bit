@@ -15,10 +15,20 @@ const pixelBody = VT323({
   weight: "400",
 });
 
+const description =
+  "Unofficial fan project: real Formula 1 race data redrawn as a 16-bit arcade broadcast.";
 export const metadata: Metadata = {
-  title: "F16bit — retro F1 replays",
-  description:
-    "Unofficial fan project: real Formula 1 race data redrawn as a 16-bit arcade broadcast.",
+  title: "F16bit: Real F1 Races Replayed as 16-Bit Arcade Broadcasts · dumbfun.lol",
+  description,
+  alternates: { canonical: "https://dumbfun.lol/F16bit/" },
+  openGraph: {
+    type: "website",
+    siteName: "dumbfun.lol",
+    url: "https://dumbfun.lol/F16bit/",
+    title: "F16bit: retro F1 replays",
+    description,
+  },
+  twitter: { card: "summary" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
